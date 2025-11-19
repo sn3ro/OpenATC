@@ -1,0 +1,269 @@
+; Manual toolchange with automatic tool length measurement
+
+o<psng_manual_change> sub
+
+; BEGIN PSNG PREAMBLE
+M73 ; Save and autorestore model states. This will be used only in case of error, otherwise we will invalidate it.
+o<_psng_modal_save> call
+o<_psng_hook> call [1]
+; END PSNG PREAMBLE
+
+;(debug, in change tool_in_spindle=#<tool_in_spindle> current_pocket=#<current_pocket>)
+;(debug, selected_tool=#<selected_tool> selected_pocket=#<selected_pocket>)
+
+; Save some info, otherwise after the M6 this information is gone!
+#<tool> = #<_selected_tool>
+#<pocket> = #<_selected_pocket>
+
+; We must execute this only in the milltask interpreter
+; or preview will break, so test for '#<_task>' which is 1 for
+; the milltask interpreter and 0 in the UI's
+O100 if [#<_task> EQ 0]
+    (debug, Task ist Null)
+    M72 ; Restore modal state
+    O100 return [999]
+O100 endif
+
+; Ensure we're in G90 / absolute mode
+G90
+
+; First go up & then move to tool change position
+;G53 G0 Z[#<_ini[CHANGE_POSITION]Z>]
+;G53 G0 X[#<_ini[CHANGE_POSITION]X>] Y[#<_ini[CHANGE_POSITION]Y>]
+;G53 G0 Z[#<_ini[CHANGE_POSITION]Z>]
+
+
+; Cancel tool offset
+G49
+
+; using the code being remapped here means 'use builtin behaviour'
+
+; -------------------------------------------------
+; Pocket-based motion BEFORE calling builtin M6
+; -------------------------------------------------
+
+; Define pocket coordinates
+#<pocket_1_x> = 325.840
+#<pocket_1_y> = -485.650
+#<pocket_2_x> = 326.043
+#<pocket_2_y> = -385.757
+#<pocket_3_x> = 325.82
+#<pocket_3_y> = -285.76
+#<safe_z> = 0
+;Safe x and y approach position to avoid the tool hitting tool changer
+;Important for machines that are not very tall
+#<safe_x_approach> = 375
+#<safe_y_approach> = -150
+
+;variables initiation - just in case
+        #<pocket_x> = 80 ; Safe initiation of x position
+        #<pocket_y> = 0 ; Safe initiation of y position
+        #<current_pocket_x> = 80 ; Safe initiation of x position
+        #<current_pocket_y> = 0 ; Safe initiation of y position
+
+;New pocket coordinates selection
+
+    O111 IF [#<pocket> EQ 61]
+        #<pocket_x> = #<pocket_1_x>
+        #<pocket_y> = #<pocket_1_y>
+    O111 ELSEIF [#<pocket> EQ 62]
+        #<pocket_x> = #<pocket_2_x>
+        #<pocket_y> = #<pocket_2_y>
+    O111 ELSEIF [#<pocket> EQ 63]
+        #<pocket_x> = #<pocket_3_x>
+        #<pocket_y> = #<pocket_3_y>
+    O111 ELSE
+        ;Safety position for pocket 0 if somethings goes wrong with tool selection
+        #<pocket_x> = 80 ; Safe initiation of x position
+        #<pocket_y> = 0 ; Safe initiation of y position
+        
+    O111 ENDIF
+
+;Current pocket coordinates selection
+
+    O112 IF [#<_current_pocket> EQ 61]
+        #<current_pocket_x> = #<pocket_1_x>
+        #<current_pocket_y> = #<pocket_1_y>
+    O112 ELSEIF [#<_current_pocket> EQ 62]
+        #<current_pocket_x> = #<pocket_2_x>
+        #<current_pocket_y> = #<pocket_2_y>
+    O112 ELSEIF [#<_current_pocket> EQ 63]
+        #<current_pocket_x> = #<pocket_3_x>
+        #<current_pocket_y> = #<pocket_3_y>
+    O112 ELSE
+        ;Safety position for pocket 0 if somethings goes wrong with tool selection
+        #<current_pocket_x> = 80 ; Safe initiation of x position
+        #<current_pocket_y> = 0 ; Safe initiation of y position
+        
+    O112 ENDIF
+    
+    
+;Wrapping it in ELSE IF statement
+
+;Situation 1 - current tool no pocket, new tool no pocket
+
+O120 IF [[#<_current_pocket> LE 60] AND [#<pocket> LE 60]]
+
+	;(DEBUG, Situation 1 - current tool no pocket, new tool no pocket)
+	;(DEBUG, current pocket: #<_current_pocket>  New pocket: #<pocket>)
+	
+	;Move to tool change position
+	G53 G0 Z[#<_ini[CHANGE_POSITION]Z>]
+	G53 G0 X[#<_ini[CHANGE_POSITION]X>] Y[#<_ini[CHANGE_POSITION]Y>]
+	G53 G0 Z[#<_ini[CHANGE_POSITION]Z>]
+
+	M6
+
+
+;Situation 2 - current tool no pocket, new tool in pocket
+
+O120 ELSEIF [[#<_current_pocket> LE 60] AND [#<pocket> GT 60]]
+;(DEBUG, Situation 2 - current tool no pocket, new tool in pocket)
+;(DEBUG, current pocket: #<_current_pocket>  New pocket: #<pocket>)
+
+	;Move to tool change position and wait for the hal signal, this will
+	;also update the tool number
+		;Move to tool change position
+	G53 G0 Z[#<_ini[CHANGE_POSITION]Z>]
+	G53 G0 X[#<_ini[CHANGE_POSITION]X>] Y[#<_ini[CHANGE_POSITION]Y>]
+	G53 G0 Z[#<_ini[CHANGE_POSITION]Z>]
+	M6
+
+	;Tool holder is empty, move to the tool changer position, and load the tool
+	G53 G0 Z#<safe_z>
+	G53 G0 Y#<safe_y_approach>
+	G53 G0 X#<safe_x_approach>
+	G53 G0 Y#<pocket_y>
+	
+	G53 G0 X#<pocket_x> Y#<pocket_y> ; Y coodrinate just in case
+	
+	;tool loading
+    O<atc_loading> CALL
+    
+	;safe path to avoid other tool changers
+	G53 G0 X#<safe_x_approach>
+	G53 G0 Y#<safe_y_approach>
+
+
+
+;Situation 3 - Current tool pocket, new tool no pocket
+
+O120 ELSEIF [[#<_current_pocket> GT 60] AND [#<pocket> LE 60]]
+
+
+;(DEBUG, Situation 3 - Current tool pocket, new tool no pocket)
+;(DEBUG, current pocket: #<_current_pocket>  New pocket: #<pocket>)
+
+	G53 G0 Z#<safe_z>
+	G53 G0 Y#<safe_y_approach>
+	G53 G0 X#<safe_x_approach>
+	G53 G0 Y#<current_pocket_y>
+
+	;Unload the tool in the current tool pocket
+
+	G53 G0 X#<current_pocket_x> Y#<current_pocket_y>
+	O<atc_unloading> CALL
+	
+	;safe path to avoid other tool changers
+	G53 G0 X#<safe_x_approach>
+	G53 G0 Y#<safe_y_approach>
+	
+	;Move to tool change position
+	G53 G0 Z[#<_ini[CHANGE_POSITION]Z>]
+	G53 G0 X[#<_ini[CHANGE_POSITION]X>] Y[#<_ini[CHANGE_POSITION]Y>]
+	G53 G0 Z[#<_ini[CHANGE_POSITION]Z>]
+	;Call M6 to manually load the tool
+	M6
+
+
+;Situation 4 - Both tools in pockets
+
+O120 ELSEIF [[#<_current_pocket> GT 60] AND [#<pocket> GT 60]]
+
+;(DEBUG, Situation 4 - Both tools in pockets)
+;(DEBUG, current pocket: #<_current_pocket>  New pocket: #<pocket>)
+
+	;Safe path to the tool changer
+	G53 G0 Z#<safe_z>
+	G53 G0 Y#<safe_y_approach>
+	G53 G0 X#<safe_x_approach>
+	G53 G0 Y#<current_pocket_y>
+	
+	;Unload the tool in the current tool pocket
+	
+	G53 G0 X#<current_pocket_x> Y#<current_pocket_y>
+	O<atc_unloading> CALL
+
+	
+	;Load the tool from the new tool pocket
+
+	G53 G0 X#<pocket_x> Y#<pocket_y>
+    O<atc_loading> CALL
+	;update tool number
+	M61 Q#<tool>
+	;apply offset
+	G43 H#<tool>
+	
+	;Safe path to avoid tool changers
+	G53 G0 X#<safe_x_approach>
+	G53 G0 Y#<safe_y_approach>
+	
+O120 ELSE
+
+(DEBUG, Situation 5 - something went wrong)
+(DEBUG, current pocket: #<_current_pocket>  New pocket: #<pocket>)
+
+
+O120 ENDIF
+
+
+; -------------------------------------------------
+; Now run the rest of the tool measurement
+; -------------------------------------------------
+
+; This M6 command is no longer need - remove after testing
+;M6
+
+O200 if [#<_hal[probe.enbl_remap_m6]> EQ 0]
+O200 return [5] ; tool measurement disabled
+O200 endif
+
+
+; First go up & then move to tool sensor position
+G53 G0 Z[#<_ini[CHANGE_POSITION]Z>]
+G53 G0 X[#<_ini[TOOLSENSOR]X>] Y[#<_ini[TOOLSENSOR]Y>]
+G53 G0 Z[#<_ini[TOOLSENSOR]Z>]
+
+
+; Measure Tool
+o<_psng_probe_tool> call [#<_ini[TOOLSENSOR]MAXPROBE>]
+;(debug, return value =#<_value>)
+O1 if [#<_value> EQ -1]
+    M72 ; Restore modal state
+    O1 return [-3] ; indicate probe already tripped to epilog
+O1 else if [#<_value> EQ -2]
+    M72 ; Restore modal state
+    O1 return [-4] ; indicate probe contact failure to epilog
+O1 else if [#<_value> EQ -3]
+    M72 ; Restore modal state
+    (ABORT, Probe failed to make contact without ERR signal)
+O1 endif
+
+; Move off the Tool Sensor
+G53 G1 Z[#<_ini[TOOLSENSOR]Z>]  F#<_ini[TOOLSENSOR]RAPID_SPEED>
+
+#<touch_result> = #5063
+#<setterheight> = #<_hal[probe.setterheight]>
+#<blockheight> = #<_hal[probe.blockheight]>
+
+G10 L1 P#<tool> Z[#<touch_result> - #<_hal[probe.setterheight]> + #<_hal[probe.blockheight]>]
+G43
+
+; BEGIN PSNG POSTAMBLE
+M71 ; Invalidate Modal Autorestore
+o<_psng_modal_restore> call
+; END PSNG POSTAMBLE
+
+; signal success by returning a value > 0:
+o<psng_manual_change> endsub [1]
+m2

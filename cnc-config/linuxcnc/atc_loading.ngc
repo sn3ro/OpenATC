@@ -1,0 +1,69 @@
+; -------------------------------------------------
+; daza_atc_loading.ngc
+; Subroutine: Load tool into spindle
+; -------------------------------------------------
+
+o<daza_atc_loading> sub
+
+;(DEBUG, ATC: Starting tool LOAD sequence)
+
+
+; Parameters – adjust for your machine
+#<z_clear>         = 0         ; Safe Z height above pocket (machine coordinates)
+#<z_referance>     = -60       ; Reference point for spindle without a nut touching the top of ATC
+#<z_engage_offset> = 16		   ; Distance reference to the spindle above the nut
+#<z_engage>        = [#<z_referance> + #<z_engage_offset>]
+#<z_nut_first>     = -21.5      ; Incremental step to engage the nut first
+#<z_nut_lock>      = -11        ; Incremental step to engage the lock
+#<z_nut_unlock>    = [-#<z_nut_lock>]         ; Incremental step to disengage the lock
+#<feed_nut>        = 200	   ; Slow Z feed to engage the nut (mm/min)
+#<feed_fast>       = 2400      ; Fast Z feed for screwing (mm/min)
+#<rpm_slow_unlock> = 400       ; Spindle speed to unlock
+#<rpm_screw>       = 650       ; Spindle speed for screwing
+#<dwell_short>     = 0.4       ; Short dwell for unlocking
+#<dwell_veryshort> = 0.1	   ; Very short dwell when engaging the lock
+#<dwell_long>      = 1.2         ; Long dwell for getting spindle up to speed
+#<multi_clamps>    = 2         ; Number of tighten-release cycles
+
+; -------------------------------
+
+G17 G90 G40 G49
+G53 G0 Z#<z_clear>
+
+
+
+;(DEBUG, ATC: Engaging for screw)
+
+G53 G1 Z#<z_engage> F#<feed_fast>		; Lower just above the nut
+
+G91                						;switch to incremental mode
+M3 S#<feed_nut>            		;Spin clockwise at low speed
+G1 Z#<z_nut_first>  F#<feed_nut>        ;lower slowly to engage the nut)
+
+
+;(DEBUG, ATC: Locking nut - Multi-stage tightening)
+
+O200 repeat [#<multi_clamps>]
+
+	M3 S#<rpm_screw>         		  ;spindle on, counter-clockwise
+	G4 P#<dwell_long>        		  ;wait for spindle to stabilize
+	G1 Z#<z_nut_lock> F#<feed_fast>   ;Feed down to engage the lock
+	G4 P#<dwell_veryshort>	          ; wait to make sure the lock was engagee
+	M5   							  ; Stop the spindle
+	G1 Z#<z_nut_unlock> F#<feed_fast> ; Move to disengage the lock
+	
+	;Wiggle the spindle to make sure the bottom part is free
+	M4 S#<rpm_slow_unlock>       	  ;Spin clockwise at low speed to unlock the lock
+	G4 P#<dwell_short>        		  ;Wait
+	M5             					  ;Stop spindle
+
+O200 endrepeat
+
+G90									  ; Back to absolute mode
+
+;(DEBUG, ATC: Retracting to safe height)
+G53 G0 Z#<z_clear>					  ; Go to safe height 
+
+;(DEBUG, ATC: Load complete)
+
+o<daza_atc_loading> endsub

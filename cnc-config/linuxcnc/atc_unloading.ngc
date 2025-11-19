@@ -1,0 +1,68 @@
+
+; daza_atc_unloading.ngc
+; Subroutine: Unload the current tool
+
+
+o<daza_atc_unloading> sub
+
+;(DEBUG, ATC: Starting tool UNLOAD sequence)
+
+
+; Parameters adjust for your machine
+#<z_clear>         = 0         ; Safe Z height above pocket machine coordinates
+#<z_referance>     = -60       ; Reference point for spindle without a nut touching the top of ATC
+#<z_engage_offset> = 6         ; Distance reference and the nut about to engage the holder
+#<z_engage>        = [#<z_referance> + #<z_engage_offset>]
+#<z_nut_first>     = -2.5       ; Incremental step to engage the nut first
+#<z_nut_full>      = -11        ; Incremental step to fully engage the nut
+#<z_nut_lock>      = -11        ; Incremental step to engage the lock
+#<feed_slow>       = 900       ; Slow Z feed for nut engagement (mm/min)
+#<feed_fast>       = 2400      ; Fast Z feed for unscrewing (mm/min)
+#<rpm_settle>      = 300       ; Spindle speed for back and forward
+#<rpm_unscrew>     = 750       ; Spindle speed for unscrewing
+#<dwell_short>     = 0.3       ; Short dwell for nut getting into the holder
+#<dwell_unlock>	   = 0.05      ; Very short dwell to make sure nut is unscrewed
+#<dwell_long>      = 2       ; Long dwell for getting spindle up to speed
+
+
+
+G17 G90 G40 G49
+G53 G0 Z#<z_clear>         ; Move to safe Z
+
+;(DEBUG, ATC: Engaging for unscrew)
+G53 G1 Z#<z_engage> F#<feed_slow>
+
+; Lower to engage with the nut holder
+G91                         ;Switch to incremental mode
+G1 Z#<z_nut_first> F#<feed_slow> ; Lower down to engage the nut
+
+;Rock Spindle CW/CCW briefly to settle in the nut holder
+
+M3 S#<rpm_settle>        ;Spin clockwise at low speed
+G4 P#<dwell_short>       ;Wait 
+M5                       ;Stop spindle
+G4 P#<dwell_short>       ;Wait 
+M4 S#<rpm_settle>        ;Spin counterclockwise at low speed
+G4 P#<dwell_short>       ;Wait
+M5                       ;Stop spindle
+
+; Lower another to fully engage nut
+G1 Z#<z_nut_full> F#<feed_slow>  ;Lower down
+
+; Start spindle counter clockwise to unscrew
+M4 S#<rpm_unscrew>
+G4 P#<dwell_long>
+
+;Lower to engage the locking feature and move up
+G1 Z#<z_nut_lock> F#<feed_fast>       ;lower down fast
+G4 P#<dwell_unlock>	                  ;Short dwell to make sure nut is unclocked
+
+G90                                    ;Switch to absolute mode
+G53 G0 Z#<z_clear>                    ; Move to safe Z with the nut unlocked
+M5                        ; Stop spindle
+
+;(DEBUG, ATC: Tool released from spindle)
+
+;(DEBUG, ATC: Unload complete)
+
+o<daza_atc_unloading> endsub
